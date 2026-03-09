@@ -23,6 +23,9 @@ inputs:
   keepalive:
     description: Useful for NAT traversal
     required: false
+  dns:
+    description: Comma-separated list of DNS servers
+    required: false
 
 runs:
   using: composite
@@ -37,6 +40,7 @@ runs:
         readonly private_key='${{ inputs.private_key }}'
         readonly preshared_key='${{ inputs.preshared_key }}'
         readonly keepalive='${{ inputs.keepalive }}'
+        readonly dns='${{ inputs.dns }}'
 
         readonly minport=51000
         readonly maxport=51999
@@ -161,6 +165,24 @@ runs:
 
             # Add routes for allowed_ips
             for i in ${allowed_ips//,/ }; do sudo ip route replace "$i" dev "$ifname"; done
+
+            if [ -n "$dns" ]; then
+                local dns_file
+                dns_file="$( mktemp )"
+                local delim=,
+                local dns_server
+                while IFS= read -d "$delim" -r dns_server; do
+                    if [[ ! "$dns_server" =~ ^[0-9a-fA-F.:]+$ ]]; then
+                        echo "Invalid DNS server address: $dns_server" >&2
+                        rm -f -- "$dns_file"
+                        exit 1
+                    fi
+                    echo "nameserver $dns_server" >> "$dns_file"
+                done < <( printf -- "%s$delim\\0" "$dns" )
+                cat /etc/resolv.conf >> "$dns_file"
+                sudo tee /etc/resolv.conf < "$dns_file" > /dev/null
+                rm -f -- "$dns_file"
+            fi
         }
 
         # systemd-networkd greets me with 'Temporary failure in name
